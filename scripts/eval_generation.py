@@ -35,6 +35,7 @@ from pantryrag.pipeline import PantryRAG  # noqa: E402
 from pantryrag.retrieval import _head_match  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
+# function words and generic cooking verbs ignored when comparing step wording
 STOP = set("""a an the and or of to in on for with into onto over until then it its is are be
 until about mins min minutes minute heat add stir cook until well large small pan bowl
 your you this that from at by as up out off all each some few more half rest remaining
@@ -43,17 +44,23 @@ season taste serve serving""".split())
 
 # ------------------------------------------------------------------ text utils
 def section(text: str, name: str) -> str:
+    """Body of the markdown section "**<name>:**" in an answer ("" if absent)."""
+    # capture lazily from the bold heading up to the next bold heading or the end
     m = re.search(rf"\*\*{name}[^*]*\*\*:?(.*?)(?=\n\*\*[A-Z][a-zA-Z ]+:?\*\*|\Z)", text, re.S | re.I)
     return m.group(1) if m else ""
 
 
 def steps_of(text: str) -> list[str]:
+    """Individual steps from the answer's Steps section (fragments under 3 words dropped)."""
     body = section(text, "Steps")
+    # split at numbered ("1." / "2)") or bulleted line starts, and also at inline
+    # numbering ("... pan. 2. Add ...") that some models put on one line
     lines = re.split(r"\n\s*(?:\d+[.)]|[-*])\s*|(?<=\.)\s+(?=\d+\.\s)", "\n" + body)
     return [l.strip() for l in lines if len(l.strip().split()) >= 3]
 
 
 def content_words(s: str) -> set[str]:
+    """Singular content words of a sentence (stop words and words of <= 2 letters removed)."""
     return {singularize(w) for w in clean(s, drop_descriptors=False).split()
             if w not in STOP and len(w) > 2}
 
@@ -69,10 +76,15 @@ GENERIC = {"spoon", "sprinkle", "spice", "sauce", "salad", "spread", "peel", "se
 
 
 class IngredientExtractor:
+    """Finds ingredient names in free text by matching against the corpus vocabulary
+    (names seen at least `min_count` times, minus generic words like "sauce")."""
+
     def __init__(self, vocab: dict[str, int], min_count: int = 5):
         self.v = {k for k, c in vocab.items() if c >= min_count and len(k) > 2 and k not in GENERIC}
 
     def __call__(self, text: str) -> list[str]:
+        """Unique ingredients in `text`, scanning left to right with greedy longest
+        match (3-, then 2-, then 1-word names) so "green bell pepper" is not split."""
         toks = [singularize(w) for w in clean(text, drop_descriptors=False).split()]
         out, i = [], 0
         while i < len(toks):
@@ -88,15 +100,20 @@ class IngredientExtractor:
 
 
 def nonstaple(i: str) -> bool:
+    """True unless the ingredient is a staple (salt, oil, water, ...)."""
     return i not in STAPLES and not any(_head_match(i, s) for s in STAPLES)
 
 
 def backed(i: str, pool: list[str]) -> bool:
+    """True if ingredient `i` is supported by some item in `pool` (same up to variety
+    words, or one name contained in the other)."""
     return any(_head_match(i, p) or i in p.split() or p in i.split() for p in pool)
 
 
 # ------------------------------------------------------------------ queries
 def build_queries(rag: PantryRAG, n_syn: int, seed: int = 7):
+    """Hand-written gold pantry queries plus `n_syn` synthetic ones, each built from
+    3-5 ingredients of a random recipe and an optional constraint."""
     qs = [json.loads(l)["text"] for l in open(ROOT / "data/eval/pantry_queries_gold.jsonl")]
     rng = random.Random(seed)
     pool = [r for r in rag.recipes if len([i for i in r.ingredients if nonstaple(i)]) >= 5]
@@ -109,11 +126,15 @@ def build_queries(rag: PantryRAG, n_syn: int, seed: int = 7):
 
 # ------------------------------------------------------------------ scoring
 def score(rec: dict, rag: PantryRAG, extract: IngredientExtractor) -> dict:
+    """Compute the faithfulness metrics (see module docstring) for one cached answer."""
     text = rec["text"]
     pantry = rec["pantry"]
+    # score only the main recommendation; alternatives are one-line pointers
     body = re.split(r"\*\*Alternatives", text)[0]
     mentioned = [i for i in extract(body) if nonstaple(i)]
+    # pick the reference recipe the answer is judged against
     if rec["system"] == "rag":
+        # the cited recipe; if the answer cited nothing, the top retrieved one
         ids = rec["cited_ids"] or rec["retrieved_ids"][:1]
         ref = rag.recipes[rag.retriever.id2idx[ids[0]]] if ids else None
     else:  # best-matching real recipe for the plain answer
@@ -121,6 +142,7 @@ def score(rec: dict, rag: PantryRAG, extract: IngredientExtractor) -> dict:
         best, best_j = None, -1
         for r in rag.recipes:
             s = set(r.ingredients)
+            # Jaccard overlap between the answer's ingredients and this recipe's
             j = len(ms & s) / (len(ms | s) or 1)
             if j > best_j:
                 best, best_j = r, j
@@ -130,19 +152,26 @@ def score(rec: dict, rag: PantryRAG, extract: IngredientExtractor) -> dict:
     # ingredient list (e.g. "serve with rice"); those are still in the document
     ref_doc = ref_ings + (extract(" ".join(ref.steps)) if ref else [])
     subs = rec.get("substitutes", [])
+    # ingredient_grounding: a mentioned ingredient is legitimate if it comes from the
+    # reference recipe, the user's pantry, or a substitute we suggested
     pool = ref_doc + pantry + subs
     grounded = [i for i in mentioned if backed(i, pool)]
     gsteps = steps_of(text)
     ref_steps = [content_words(s) for s in (ref.steps if ref else [])]
+    # step_grounding: a generated step counts as grounded if at least half of its
+    # content words appear in a single step of the reference recipe
     step_ok = 0
     for s in gsteps:
         cw = content_words(s)
         if cw and ref_steps and max(len(cw & r) / len(cw) for r in ref_steps) >= 0.5:
             step_ok += 1
+    # unflagged_missing: ingredients the steps need that the user lacks and the
+    # answer never warned about (not in pantry, not in Missing, not a substitute)
     missing_sec = extract(section(text, "Missing"))
     step_ings = [i for i in extract(" ".join(gsteps)) if nonstaple(i)]
     unflagged = [i for i in step_ings if not backed(i, pantry) and not backed(i, missing_sec)
                  and not backed(i, subs)]
+    # diet_violation: any mentioned ingredient breaks the requested diet
     diet = rec.get("diet")
     diet_bad = bool(diet) and not recipe_diets(mentioned).get(diet, True)
     out = {
@@ -154,6 +183,8 @@ def score(rec: dict, rag: PantryRAG, extract: IngredientExtractor) -> dict:
         "ref_recipe": ref.id if ref else None,
     }
     if rec["system"] == "rag":
+        # invalid citations were already replaced in the text by rag_answer, so add a
+        # placeholder for each to count them in the denominator
         cited = CITE_RE.findall(text) + ["x"] * len(rec.get("invalid", []))
         out["citation_validity"] = (len(rec["cited_ids"]) / len(cited)) if cited else 0.0
         out["has_citation"] = bool(rec["cited_ids"])
@@ -161,6 +192,8 @@ def score(rec: dict, rag: PantryRAG, extract: IngredientExtractor) -> dict:
 
 
 def main():
+    """Generate (or resume) RAG and plain answers for all queries, then score and
+    aggregate them into results/generation_<backend>.json."""
     ap = argparse.ArgumentParser()
     ap.add_argument("--backend", default="hf")
     ap.add_argument("--n-synthetic", type=int, default=15)
@@ -170,6 +203,7 @@ def main():
     params = json.loads((ROOT / "results/rerank_params.json").read_text()) \
         if (ROOT / "results/rerank_params.json").exists() else {}
     out_path = ROOT / f"results/generations_{args.backend}.jsonl"
+    # (query, system) pairs already generated; skipped so an interrupted run resumes
     done = {(r["query"], r["system"]) for r in map(json.loads, out_path.read_text().splitlines())} \
         if out_path.exists() else set()
     queries = build_queries(rag, args.n_synthetic)[:args.limit]

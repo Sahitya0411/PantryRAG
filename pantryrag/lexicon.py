@@ -71,6 +71,8 @@ SYNONYMS: dict[str, str] = {
 }
 
 # Words that describe preparation/state, not identity.
+# Entries ending in "_" are switched off (normalize.py skips them), e.g. "ground_"
+# must stay because "ground cumin" and "cumin" are different corpus ingredients.
 DESCRIPTORS = {
     "fresh", "freshly", "chopped", "finely", "roughly", "coarsely", "diced", "sliced", "thinly",
     "minced", "grated", "shredded", "crushed", "ground_", "peeled", "deveined", "boneless",
@@ -86,6 +88,7 @@ DESCRIPTORS = {
     "baby", "bit", "bits", "leftover", "half", "quarter", "lots", "lot", "little",
 }
 
+# Measurement words removed during cleaning ("2 cups rice" -> "rice").
 UNITS = {
     "g", "gm", "gms", "gram", "grams", "kg", "kgs", "kilo", "ml", "l", "litre", "liter",
     "litres", "liters", "cup", "cups", "tbsp", "tablespoon", "tablespoons", "tsp",

@@ -21,6 +21,7 @@ MEATY = {"chicken", "beef", "lamb", "pork", "fish", "prawn", "prawns", "salmon",
 
 
 def main():
+    """Compare our diet labels with the scraped site tags and save results/diet_labels.json."""
     recipes, _ = corpus.build("bbc")
     scraped = [r for r in recipes if r.tags or r.source_diets]
     out = {"n_scraped": len(scraped)}
@@ -32,6 +33,7 @@ def main():
         out[f"{diet}_agreement"] = round(agree / len(pos), 3) if pos else None
         out[f"{diet}_misses"] = [(r.title, [i for i in r.ingredients][:12]) for r in pos
                                  if not r.diets[diet]][:10]
+    # recipes the site tags with a meat/fish keyword should never be called vegetarian
     meaty = [r for r in scraped if any(t.lower() in MEATY for t in r.tags)]
     false_veg = [r for r in meaty if r.diets["vegetarian"]]
     out["meat_tagged"] = len(meaty)

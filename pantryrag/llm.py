@@ -16,12 +16,16 @@ Message = dict  # {"role": "user"|"assistant", "content": str}
 
 
 class LLM(Protocol):
+    """Interface every backend implements: a `name` and a `chat()` method that takes a
+    system prompt plus chat messages and returns the reply text."""
     name: str
 
     def chat(self, system: str, messages: list[Message], max_tokens: int = 700) -> str: ...
 
 
 class HFLocalLLM:
+    """Local open-weights chat model run with Hugging Face transformers (GPU/MPS if available)."""
+
     def __init__(self, model_id: str | None = None):
         import torch
         from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -39,19 +43,25 @@ class HFLocalLLM:
         self._torch = torch
 
     def chat(self, system: str, messages: list[Message], max_tokens: int = 700) -> str:
+        """Generate a reply with greedy decoding and return only the new text."""
         msgs = [{"role": "system", "content": system}] + messages
         prompt = self.tok.apply_chat_template(msgs, add_generation_prompt=True, tokenize=False)
         enc = self.tok(prompt, return_tensors="pt").to(self.device)
+        # greedy decoding (do_sample=False) keeps evaluation runs reproducible;
+        # a mild repetition penalty stops the small model from looping
         with self._torch.no_grad():
             out = self.model.generate(**enc, max_new_tokens=max_tokens, do_sample=False,
                                       temperature=None, top_p=None, top_k=None,
                                       repetition_penalty=1.05,
                                       pad_token_id=self.tok.eos_token_id)
+        # generate() returns prompt + completion; drop the first n prompt tokens
         n = enc["input_ids"].shape[1]
         return self.tok.decode(out[0, n:], skip_special_tokens=True).strip()
 
 
 class AnthropicLLM:
+    """Hosted model accessed through the Anthropic SDK (needs an API key in the environment)."""
+
     def __init__(self, model: str | None = None):
         import anthropic
 
@@ -61,6 +71,7 @@ class AnthropicLLM:
         self.name = f"anthropic:{self.model}"
 
     def chat(self, system: str, messages: list[Message], max_tokens: int = 4000) -> str:
+        """Send one request and return the concatenated text blocks of the reply."""
         kwargs = dict(model=self.model, max_tokens=max_tokens, system=system, messages=messages,
                       output_config={"effort": "low"})
         try:
@@ -68,6 +79,7 @@ class AnthropicLLM:
             resp = self.client.beta.messages.create(
                 betas=["server-side-fallback-2026-07-01"], fallbacks="default", **kwargs)
         except (TypeError, self.anthropic.BadRequestError):
+            # older SDK / account without the beta: fall back to the standard endpoint
             resp = self.client.messages.create(**kwargs)
         if resp.stop_reason == "refusal":
             return "Sorry, I can't help with that request."
@@ -82,10 +94,13 @@ class ExtractiveLLM:
         raise RuntimeError("extractive backend has no free-form chat")
 
 
+# one instance per backend, so a local model is loaded into memory only once
 _CACHE: dict[str, LLM] = {}
 
 
 def get_llm(kind: str | None = None) -> LLM:
+    """Return the backend named by `kind` (or $PANTRYRAG_LLM): hf, anthropic,
+    extractive or auto. Instances are cached and reused."""
     kind = (kind or os.environ.get("PANTRYRAG_LLM", "auto")).lower()
     if kind == "auto":
         kind = "anthropic" if (os.environ.get("ANTHROPIC_API_KEY")

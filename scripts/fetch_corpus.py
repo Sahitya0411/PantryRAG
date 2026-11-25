@@ -26,6 +26,7 @@ META_KEYS = ["Recipe_id", "Recipe_title", "Region", "Sub_region", "Continent", "
 
 
 def _read_jsonl(path: Path) -> list[dict]:
+    """All records of a JSONL file ([] if it does not exist yet)."""
     if not path.exists():
         return []
     return [json.loads(l) for l in path.read_text().splitlines() if l.strip()]
@@ -33,6 +34,8 @@ def _read_jsonl(path: Path) -> list[dict]:
 
 def collect_metadata(client: RecipeDBClient, random_pages: int, indian_pages: int,
                      seed: int) -> list[dict]:
+    """Fetch `random_pages` random pages of the whole catalogue plus the first
+    `indian_pages` pages of Indian recipes; returns unique recipe metadata rows."""
     pages_path = RAW / "metadata_pages.jsonl"
     done_pages = {(r["kind"], r["page"]) for r in _read_jsonl(pages_path)}
     total_pages = 11809  # 118,083 recipes / 10 (from API meta)
@@ -62,6 +65,7 @@ def collect_metadata(client: RecipeDBClient, random_pages: int, indian_pages: in
 
 
 def main():
+    """Collect metadata, then download full details for every recipe not yet cached."""
     ap = argparse.ArgumentParser()
     ap.add_argument("--random-pages", type=int, default=200)
     ap.add_argument("--indian-pages", type=int, default=60)

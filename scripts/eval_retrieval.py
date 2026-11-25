@@ -31,6 +31,8 @@ KS = [1, 5, 10, 20]
 
 
 def make_queries(recipes, n, rng, exclude=()):
+    """Sample `n` recipes (with >= 5 non-staple ingredients, not in `exclude`) and
+    return (recipe_id, query) pairs whose pantry is 3-5 of that recipe's ingredients."""
     pool = [r for r in recipes if r.id not in exclude and
             len([i for i in r.ingredients if i not in STAPLES and
                  not any(_head_match(i, s) for s in STAPLES)]) >= 5]
@@ -43,10 +45,14 @@ def make_queries(recipes, n, rng, exclude=()):
 
 
 def evaluate(R, queries, mode, depth=100, **kw):
+    """Recall@k, MRR and top-5 coverage / #missing for one retrieval mode.
+
+    Extra keyword arguments (reranker weights) are passed on to Retriever.search."""
     ranks, cov5, miss5 = [], [], []
     for rid, q in queries:
         hits = R.search(q, k=depth, mode=mode, use_filters=False, depth=depth, **kw)
         ids = [h.recipe.id for h in hits]
+        # 1-based rank of the hidden recipe, None if not retrieved within `depth`
         ranks.append(ids.index(rid) + 1 if rid in ids else None)
         top = hits[:5]
         cov5.append(np.mean([h.coverage for h in top]) if top else 0)
@@ -78,6 +84,7 @@ def constraint_eval(R, recipes, rng, n=200):
 
 
 def main():
+    """Tune the reranker on the dev split, then report every mode on the test split."""
     ap = argparse.ArgumentParser()
     ap.add_argument("--n-test", type=int, default=500)
     ap.add_argument("--n-dev", type=int, default=200)
@@ -93,6 +100,7 @@ def main():
     # tune reranker on dev (objective: MRR + top-5 coverage)
     grid = []
     for w_cov, w_use, mp in itertools.product([0.2, 0.3, 0.4], [0.2, 0.3, 0.4], [0.0, 0.02, 0.05]):
+        # keep at least 0.1 weight on the RRF relevance term
         if w_cov + w_use >= 0.9:
             continue
         r = evaluate(R, dev, "hybrid_rerank", w_cov=w_cov, w_use=w_use, miss_pen=mp)

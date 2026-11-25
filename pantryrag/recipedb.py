@@ -30,6 +30,7 @@ DEFAULT_BASE_URL = "https://api.foodoscope.com/recipe2-api"  # IIITD mirror: htt
 
 
 def _load_dotenv() -> None:
+    """Load KEY=value lines from the project's .env into os.environ (existing values win)."""
     env = ROOT / ".env"
     if not env.exists():
         return
@@ -41,10 +42,14 @@ def _load_dotenv() -> None:
 
 
 class RecipeDBError(RuntimeError):
+    """Raised when a RecipeDB request fails permanently (bad key, not found, retries exhausted)."""
     pass
 
 
 class RecipeDBClient:
+    """Minimal HTTP client for RecipeDB with retries, back-off and an optional
+    global rate limit (`min_interval` seconds between requests, thread-safe)."""
+
     def __init__(self, api_key: str | None = None, base_url: str | None = None,
                  timeout: int = 30, retries: int = 8, min_interval: float = 0.0):
         _load_dotenv()
@@ -62,6 +67,7 @@ class RecipeDBClient:
         self._lock = threading.Lock()
 
     def _throttle(self) -> None:
+        """Sleep so consecutive requests are at least `min_interval` seconds apart."""
         if self.min_interval <= 0:
             return
         with self._lock:
@@ -71,6 +77,10 @@ class RecipeDBClient:
             self._last = time.monotonic()
 
     def _get(self, endpoint: str, params: dict[str, Any] | None = None) -> dict:
+        """GET an endpoint and return the decoded JSON.
+
+        429 (rate limit) waits up to 5 minutes and retries; client errors (4xx) fail
+        immediately; network errors are retried with a growing delay."""
         url = f"{self.base_url}/{endpoint.lstrip('/')}"
         if params:
             url += "?" + urllib.parse.urlencode(params)
@@ -101,23 +111,28 @@ class RecipeDBClient:
 
     # --- listing -----------------------------------------------------------
     def list_recipes(self, page: int, limit: int = 10) -> tuple[list[dict], dict]:
+        """One page of recipe metadata. Returns (rows, paging meta); the API caps limit at 10."""
         res = self._get("recipe/recipesinfo", {"page": page, "limit": min(limit, 10)})
         return res.get("data", []) or [], res.get("meta", {}) or {}
 
     def list_by_region(self, region: str, page: int, limit: int = 10) -> list[dict]:
+        """One page of recipe metadata for a cuisine region (e.g. "Indian Subcontinent")."""
         res = self._get(f"recipes_cuisine/cuisine/{urllib.parse.quote(region)}",
                         {"page": page, "limit": min(limit, 10)})
         return res.get("data", []) or []
 
     def search_by_title(self, title: str) -> list[dict]:
+        """Recipes whose title matches `title`."""
         return self._get("recipe-bytitle/recipeByTitle", {"title": title}).get("data", []) or []
 
     # --- per recipe --------------------------------------------------------
     def recipe_info(self, recipe_id: str) -> dict | None:
+        """Metadata for one recipe, or None if it does not exist."""
         data = self._get("recipe/recipesinfo", {"recipeId": recipe_id}).get("data", [])
         return data[0] if data else None
 
     def instructions(self, recipe_id: str) -> list[str]:
+        """Cooking steps for one recipe as a list of non-empty strings."""
         res = self._get(f"instructions/{recipe_id}")
         data = res.get("data") or res
         steps = data.get("steps", []) if isinstance(data, dict) else []
@@ -141,6 +156,8 @@ class RecipeDBClient:
         steps = []
         for ins in d.get("instructions") or []:
             raw = ins.get("steps")
+            # steps come either as a list or as one string with " . " / " ; "
+            # between sentences (the API pads punctuation with spaces)
             parts = raw if isinstance(raw, list) else re.split(r"\s[.;]\s|\s[.;]$", raw or "")
             steps += [x.strip(" .;") for x in parts if x and len(x.strip(" .;")) > 3]
         return {"meta": meta, "ingredients": ings, "steps": steps}
@@ -165,6 +182,7 @@ class RecipeDBClient:
 
 
 def _f(x) -> float | None:
+    """Parse a number rounded to 3 decimals, or None if missing/invalid."""
     try:
         return round(float(x), 3)
     except (TypeError, ValueError):

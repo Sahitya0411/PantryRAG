@@ -25,6 +25,8 @@ CRIT = ["relevance", "feasibility", "correctness"]
 
 
 def build(backend: str, n: int, seed: int = 43):
+    """Write a blinded rating sheet for `n` queries; RAG/plain are randomly assigned
+    to columns A/B and the assignment is saved separately in key.json."""
     recs = [json.loads(l) for l in open(ROOT / f"results/generations_{backend}.jsonl")]
     by_q = defaultdict(dict)
     for r in recs:
@@ -49,6 +51,8 @@ def build(backend: str, n: int, seed: int = 43):
 
 
 def score(paths: list[str]):
+    """Un-blind the filled sheets with key.json and report mean ratings per system
+    and the share of preferences for RAG, plain and tie."""
     key = json.loads((OUT / "key.json").read_text())
     vals = {s: defaultdict(list) for s in ("rag", "plain")}
     pref = defaultdict(int)

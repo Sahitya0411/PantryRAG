@@ -28,6 +28,7 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "data" / "raw" / "bbc_scraped.jsonl"
 UA = "PantryRAG-academic-crawler/1.0 (course project; polite, 12s delay)"
+# JSON-LD <script> blocks, where pages embed structured schema.org data
 LD_RE = re.compile(r'<script[^>]*application/ld\+json[^>]*>(.*?)</script>', re.S)
 KEEP = ["name", "recipeIngredient", "recipeInstructions", "prepTime", "cookTime", "totalTime",
         "nutrition", "recipeYield", "suitableForDiet", "keywords", "recipeCategory",
@@ -35,11 +36,14 @@ KEEP = ["name", "recipeIngredient", "recipeInstructions", "prepTime", "cookTime"
 
 
 def extract_recipe(html: str) -> dict | None:
+    """The schema.org Recipe object from a page's JSON-LD (KEEP fields only), with
+    instructions flattened to plain-text steps; None if the page has none."""
     for m in LD_RE.finditer(html):
         try:
             d = json.loads(m.group(1))
         except json.JSONDecodeError:
             continue
+        # JSON-LD may be a list, a single object, or an object with an "@graph" list
         items = d if isinstance(d, list) else d.get("@graph", [d])
         for it in items:
             if isinstance(it, dict) and "Recipe" in str(it.get("@type")):
@@ -55,6 +59,7 @@ def extract_recipe(html: str) -> dict | None:
 
 
 def fetch(url: str, timeout: int = 30) -> tuple[int, str]:
+    """GET a page. Returns (HTTP status, html); status 0 means a network error."""
     req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "text/html"})
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
@@ -66,6 +71,8 @@ def fetch(url: str, timeout: int = 30) -> tuple[int, str]:
 
 
 def ordered_urls(csv: Path, seed: int = 43) -> list[str]:
+    """Recipe URLs in crawl order: Indian recipes first, then other tagged cuisines,
+    then untagged ones (shuffled within each group)."""
     df = pd.read_csv(csv)
     df = df[df.recipe_url.str.contains("/recipes/", na=False)]
     cuisine = df.cuisine.fillna("").str.lower()
@@ -82,6 +89,7 @@ def ordered_urls(csv: Path, seed: int = 43) -> list[str]:
 
 
 def main():
+    """Scrape up to --max not-yet-scraped pages, appending results to bbc_scraped.jsonl."""
     ap = argparse.ArgumentParser()
     ap.add_argument("--csv", required=True)
     ap.add_argument("--max", type=int, default=600, help="pages to fetch this run")
@@ -111,6 +119,7 @@ def main():
                     break
             if i % 25 == 0:
                 print(f"  {i}/{len(todo)} fetched, {fails} failed", flush=True)
+            # wait out the rest of the crawl delay (request time counts toward it)
             time.sleep(max(0.0, args.delay - (time.time() - t0)))
     print(f"done; failures={fails}", flush=True)
 

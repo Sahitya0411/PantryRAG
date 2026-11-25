@@ -114,6 +114,8 @@ CURATED: dict[str, list[tuple[str, str]]] = {
 
 @dataclass
 class Substitution:
+    """One suggested replacement for a missing ingredient, with a usage note and
+    whether the user already has it."""
     missing: str
     substitute: str
     note: str
@@ -122,12 +124,19 @@ class Substitution:
 
 
 class Substituter:
+    """Suggests substitutes from the curated table, backed up by corpus statistics.
+
+    Only ingredients seen in at least `min_count` recipes get corpus vectors (rare
+    ones give noisy statistics). `encoder` is a sentence-embedding model; pass the
+    retriever's to avoid loading it twice."""
+
     def __init__(self, recipes, min_count: int = 15, encoder=None):
         from collections import Counter
         cnt = Counter(i for r in recipes for i in r.ingredients)
         self.vocab = [i for i, c in cnt.items() if c >= min_count and i not in STAPLES]
         self.idx = {v: k for k, v in enumerate(self.vocab)}
         n = len(self.vocab)
+        # C[a, b] = number of recipes that contain both ingredient a and ingredient b
         C = np.zeros((n, n), np.float32)
         for r in recipes:
             ids = [self.idx[i] for i in r.ingredients if i in self.idx]
@@ -135,11 +144,15 @@ class Substituter:
                 C[a, ids] += 1
         np.fill_diagonal(C, 0)
         self.cooc = C
+        # PPMI = max(0, log P(a,b) / (P(a) P(b))): how much more often two ingredients
+        # co-occur than chance. Negative values are clipped (unreliable for sparse
+        # counts); the epsilons avoid division by zero and log(0).
         tot = C.sum()
         row = C.sum(1, keepdims=True) + 1e-9
         col = C.sum(0, keepdims=True) + 1e-9
         pmi = np.log((C * tot) / (row * col) + 1e-12)
         ppmi = np.maximum(pmi, 0)
+        # unit-length rows, so a dot product between two rows is their cosine similarity
         norms = np.linalg.norm(ppmi, axis=1, keepdims=True) + 1e-9
         self.vec = ppmi / norms
         self.count = np.array([cnt[v] for v in self.vocab], np.float32)
@@ -152,6 +165,10 @@ class Substituter:
                                        batch_size=128).astype(np.float32)
 
     def corpus_candidates(self, ing: str, k: int = 10) -> list[tuple[str, float]]:
+        """Top `k` data-driven substitutes for `ing` as (name, score) pairs.
+
+        Score = geometric mean of context similarity and name similarity, minus how
+        often the two already appear in the same recipe."""
         if ing not in self.idx:
             return []
         i = self.idx[ing]
@@ -159,6 +176,7 @@ class Substituter:
         name = self.name_vec @ self.name_vec[i]      # same kind of food?
         # substitutes appear in similar contexts but rarely in the same recipe
         together = self.cooc[i] / (np.minimum(self.count, self.count[i]) + 1e-9)
+        # geometric mean: a candidate must score on BOTH signals, not just one
         score = np.sqrt(np.clip(ctx, 0, None) * np.clip(name, 0, None)) - together
         score[i] = -np.inf
         for j, v in enumerate(self.vocab):  # drop variants of the same item
@@ -169,6 +187,8 @@ class Substituter:
 
     def suggest(self, missing: str, pantry: list[str], diet: str | None = None,
                 k: int = 2) -> list[Substitution]:
+        """Up to `k` substitutes for `missing`, respecting `diet` and preferring items
+        already in `pantry`, then curated suggestions over corpus-derived ones."""
         from .diet import recipe_diets
 
         def diet_ok(name: str) -> bool:
@@ -182,9 +202,12 @@ class Substituter:
         if not cands and len(missing.split()) == 2:  # head noun: "white vinegar" -> "vinegar"
             cands = [(s, note, "curated") for s, note in CURATED.get(missing.split()[-1], [])]
         for s, sc in self.corpus_candidates(missing, k=8):
+            # keep only confident corpus suggestions (score threshold 0.4)
             if sc > 0.4:
                 cands.append((s, f"plays a similar role in other recipes (score {sc:.2f})", "corpus"))
         seen = set()
+        # keep diet-safe candidates, first occurrence only (seen.add() returns None,
+        # so it records the name without filtering it out)
         cands = [c for c in cands if diet_ok(c[0]) and not (c[0] in seen or seen.add(c[0]))]
         # pantry items first, then curated before corpus
         cands.sort(key=lambda c: (not have(c[0]), c[2] != "curated"))

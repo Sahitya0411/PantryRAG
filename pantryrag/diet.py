@@ -18,10 +18,14 @@ def _has(name: str, words: set[str]) -> bool:
     rest = name
     for n in sorted(NOT_ANIMAL, key=len, reverse=True):
         rest = rest.replace(n.rstrip("_"), " ")
+    # whole-word match, allowing a plural "s" ("sausage" also matches "sausages")
     return any(re.search(rf"\b{re.escape(w)}s?\b", rest) for w in words)
 
 
 def ingredient_classes(name: str) -> set[str]:
+    """Animal-product classes found in one ingredient name, e.g. "chicken stock" -> {"meat"}.
+
+    Possible classes: meat, seafood, egg, dairy, honey. An empty set means plant-based."""
     c = set()
     if _has(name, MEAT):
         c.add("meat")
@@ -37,9 +41,13 @@ def ingredient_classes(name: str) -> set[str]:
 
 
 def recipe_diets(ingredients: list[str]) -> dict[str, bool]:
+    """Decide which diets a recipe satisfies from its ingredient list.
+
+    Returns a dict {diet name: True/False} for every key in DIET_KEYS."""
     classes = set()
     for i in ingredients:
         classes |= ingredient_classes(i)
+    # each diet is defined by which animal classes it forbids
     return {
         "vegan": not classes,
         "vegetarian": not ({"meat", "seafood"} & classes),

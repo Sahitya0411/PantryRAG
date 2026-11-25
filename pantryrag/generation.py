@@ -36,11 +36,14 @@ Answer format (markdown):
 **Steps:** numbered, concise.
 **Alternatives:** up to 2 other dish ideas, one line each."""
 
+# matches citations such as "[R4255]" or "[Rbbc12]"; group 1 is the recipe ID
 CITE_RE = re.compile(r"\[R([A-Za-z0-9]+)\]")
 
 
 @dataclass
 class Answer:
+    """A generated reply plus the evidence behind it: retrieved hits, substitutions
+    for the top recipe, valid / invalid citation IDs and the backend name."""
     text: str
     hits: list[Hit]
     subs: dict[str, list[Substitution]] = field(default_factory=dict)
@@ -50,10 +53,13 @@ class Answer:
 
 
 def substitutions_for(hit: Hit, q: PantryQuery, sub: Substituter, k: int = 2):
+    """Up to `k` substitutes for each missing ingredient of a hit: {missing: [Substitution]}."""
     return {m: sub.suggest(m, q.ingredients, q.diet, k=k) for m in hit.missing}
 
 
 def build_context(q: PantryQuery, hits: list[Hit], subs_by_id: dict[str, dict]) -> str:
+    """Format retrieved recipes, their missing ingredients (with substitutes), the
+    user's pantry and constraints as the evidence block shown to the LLM."""
     blocks = []
     for h in hits:
         subs = subs_by_id.get(h.recipe.id, {})
@@ -75,6 +81,8 @@ def build_context(q: PantryQuery, hits: list[Hit], subs_by_id: dict[str, dict]) 
 
 
 def extractive_answer(q: PantryQuery, hits: list[Hit], subs_by_id: dict) -> str:
+    """No-LLM answer: fill a fixed template from the top hit (title, missing items,
+    steps) plus two alternatives. Fully grounded by construction."""
     if not hits:
         return ("I couldn't find a recipe in the database that matches your pantry and "
                 f"constraints ({q.constraints_text()}). Try relaxing a constraint.")
@@ -85,6 +93,7 @@ def extractive_answer(q: PantryQuery, hits: list[Hit], subs_by_id: dict) -> str:
     for m in h.missing:
         s = subs.get(m) or []
         miss.append(f"{m}" + (f" (or {s[0].substitute}{' - you have it' if s[0].in_pantry else ''})" if s else ""))
+    # capitalise each step's first letter (corpus steps are often lowercase)
     steps = "\n".join(f"{i+1}. {s[0].upper() + s[1:]}" for i, s in enumerate(r.steps[:10]))
     alts = "\n".join(f"- {x.recipe.title} [R{x.recipe.id}] - you have {x.coverage:.0%} of it"
                      for x in hits[1:3])
@@ -98,7 +107,12 @@ def extractive_answer(q: PantryQuery, hits: list[Hit], subs_by_id: dict) -> str:
 
 
 def check_citations(text: str, hits: list[Hit]) -> tuple[list[str], list[str]]:
+    """Split the recipe IDs cited in `text` into (valid, invalid).
+
+    A citation is valid only if that recipe was actually retrieved and shown to the
+    model; anything else is a hallucinated reference."""
     valid = {h.recipe.id for h in hits}
+    # dict.fromkeys removes repeated citations while keeping first-seen order
     cited = list(dict.fromkeys(CITE_RE.findall(text)))
     return [c for c in cited if c in valid], [c for c in cited if c not in valid]
 
@@ -106,12 +120,19 @@ def check_citations(text: str, hits: list[Hit]) -> tuple[list[str], list[str]]:
 def rag_answer(q: PantryQuery, hits: list[Hit], llm: LLM, sub: Substituter,
                history: list[dict] | None = None, user_text: str | None = None,
                n_context: int = 3) -> Answer:
+    """Generate a citation-grounded answer from the top `n_context` hits.
+
+    Uses the extractive template when the backend is extractive or nothing was
+    retrieved; otherwise prompts the LLM with the evidence block. Citations to
+    recipes outside the retrieved set are removed from the text."""
     hits = hits[:n_context]
     subs_by_id = {h.recipe.id: substitutions_for(h, q, sub) for h in hits}
     if isinstance(llm, ExtractiveLLM) or not hits:
         text = extractive_answer(q, hits, subs_by_id)
     else:
         ctx = build_context(q, hits, subs_by_id)
+        # only the last 2 user/assistant exchanges: enough for follow-ups while
+        # keeping the prompt short for small local models
         msgs = list(history or [])[-4:]
         msgs.append({"role": "user", "content": f"{ctx}\n\nUSER MESSAGE: {user_text or q.text}"})
         text = llm.chat(RAG_SYSTEM, msgs)
@@ -123,5 +144,7 @@ def rag_answer(q: PantryQuery, hits: list[Hit], llm: LLM, sub: Substituter,
 
 
 def plain_answer(q: PantryQuery, llm: LLM) -> Answer:
+    """Baseline: ask the same LLM with no retrieval. Any [R..] tag it writes is
+    counted as invalid because there is no retrieved set to back it."""
     text = llm.chat(PLAIN_SYSTEM, [{"role": "user", "content": q.text}])
     return Answer(text, [], {}, [], CITE_RE.findall(text), getattr(llm, "name", "?"))

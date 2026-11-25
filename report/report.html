@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>PantryRAG — Project Report (Group 43)</title>
+<style>
+  @page { size: A4; margin: 18mm 18mm 18mm 18mm; }
+  body { font-family: "Charter", "Georgia", serif; font-size: 10.5pt; line-height: 1.42; color: #1f2a24; }
+  h1 { font-size: 20pt; margin: 0 0 4px; }
+  h2 { font-size: 13pt; margin: 16px 0 6px; border-bottom: 1px solid #d9cfbc; padding-bottom: 2px; }
+  h3 { font-size: 11pt; margin: 10px 0 4px; }
+  p { margin: 0 0 7px; text-align: justify; }
+  .sub { font-size: 11pt; color: #4b5a52; margin-bottom: 2px; }
+  .meta { font-size: 9.5pt; color: #4b5a52; margin-bottom: 10px; }
+  .abstract { background: #f6f1e6; border-left: 3px solid #b8452f; padding: 8px 12px; margin: 8px 0 6px; font-size: 10pt; }
+  table { border-collapse: collapse; width: 100%; margin: 6px 0 4px; font-size: 9.5pt; font-family: "Helvetica Neue", Arial, sans-serif; }
+  th, td { border-bottom: 1px solid #d9cfbc; padding: 3px 6px; text-align: left; }
+  th { background: #f1eadc; }
+  td.n, th.n { text-align: right; }
+  tr.best td { font-weight: bold; background: #fbf3df; }
+  .cap { font-size: 9pt; color: #4b5a52; margin: 2px 0 10px; }
+  figure { margin: 6px 0 8px; text-align: center; }
+  figure img { width: 88%; }
+  figcaption { font-size: 9pt; color: #4b5a52; }
+  ul, ol { margin: 0 0 7px 18px; padding: 0; }
+  li { margin-bottom: 2px; }
+  code { font-family: "Menlo", monospace; font-size: 9pt; background: #f4efe4; padding: 0 2px; }
+  .refs li { font-size: 9.5pt; }
+  .two { display: flex; gap: 14px; }
+  .two > div { flex: 1; }
+  .avoid { break-inside: avoid; }
+</style>
+</head>
+<body>
+
+<h1>PantryRAG: A Pantry-Based Recipe Chatbot using Hybrid Retrieval-Augmented Generation</h1>
+<div class="sub">Computational Gastronomy Mini-Project · IIIT Delhi · Instructor: Prof. Ganesh Bagler</div>
+<div class="meta">Group 43 · Aditya Kantiwal (2023045) · Sahitya (2023464) · Code: github.com/Sahitya0411/PantryRAG</div>
+
+<div class="abstract"><b>Abstract.</b> Home cooks usually decide what to cook from what is already in the kitchen, yet keyword recipe search ignores ingredient availability and a plain large language model (LLM) can invent recipes that cannot be verified. We built PantryRAG, a chatbot that takes a free-text pantry such as “I have paneer, spinach, rice, onion and tomato; vegetarian, under 30 minutes” and returns real recipes with cited recipe IDs, the ingredients the user is missing, and substitution advice. The system has four parts: (D1) a pantry parser and ingredient normalizer, (D2) hybrid BM25 + dense retrieval fused with Reciprocal Rank Fusion, hard diet/time filters and a coverage-aware reranker, (D3) citation-grounded generation with substitutions, and (D4) a multi-turn chat interface with an evaluation suite. On a 9,878-recipe corpus, normalization reaches 91.0% accuracy on 160 hand-labelled surface forms (4.5% with exact matching), the reranked hybrid retriever finds a hidden recipe in the top 5 for 94% of 500 synthetic pantries, normalization raises Recall@5 on noisy pantry text from 0.45 to 0.85, and 92% of the steps PantryRAG generates come from a real recipe, against 19% for the same LLM without retrieval.</div>
+
+<h2>1. Introduction</h2>
+<p>Recipe recommendation from a pantry is a retrieval problem with hard constraints. The user knows the ingredients they have, often in regional or informal words (“dahi”, “jeera”, “capsicum”), and may have dietary and time limits. Search engines match words in titles, not pantry coverage, and general-purpose LLMs produce fluent recipes with no source, frequently omitting ingredients the user would have to buy. Retrieval-augmented generation (RAG) [1] addresses this by restricting the model to retrieved documents. Our aim was to apply RAG to recipes in a way that is checkable: every answer cites a recipe ID, lists what is missing and suggests substitutes, and every claim can be traced back to a recipe in the corpus.</p>
+<p>Our contributions follow the four proposal deliverables: an ingredient normalization pipeline with a hand-labelled evaluation (D1); a hybrid retriever with an ablation of BM25, dense and fused retrieval (D2); citation-grounded generation with substitutions compared against a plain-LLM baseline (D3); and a multi-turn demo with a faithfulness evaluation (D4).</p>
+
+<h2>2. Data</h2>
+<p><b>RecipeDB.</b> We implemented a client for RecipeDB 2.0 [2] through the Foodoscope API. The <code>search-recipe/{id}</code> endpoint returns metadata, steps and every ingredient (canonical name and raw phrase) in one call. However, each API key’s token balance was exhausted after about 200 calls, which was enough to list ~2,000 recipe IDs but not to download them. We also found that RecipeDB’s diet flags were 0 even for clearly vegetarian dishes such as Palak Paneer, so we derive diet labels from ingredients ourselves.</p>
+<p><b>Evaluation corpus.</b> Following the proposal’s fallback route, all results use 10,000 BBC Good Food recipes scraped by our group (ingredient phrases, steps, cuisine, servings, prep time), converted into the same schema as RecipeDB. Ingredient names come from the NER labels produced in the course assignment. After removing recipes with fewer than three ingredients or no steps and exact duplicates, the corpus has <b>9,878 recipes</b> and about 9,700 ingredient types. A polite scraper that respects robots.txt (12-second crawl delay) can enrich recipes with total time, calories and the site’s diet tags from the pages’ schema.org data. Switching the whole system to RecipeDB is one command once an API key has credit.</p>
+
+<h2>3. Method</h2>
+<h3>3.1 D1 · Pantry parsing and ingredient normalization</h3>
+<p>The parser first extracts constraints with regular expressions: diet (vegan, eggless, vegetarian, pescatarian, dairy-free), time (“under 30 minutes”, “in 1 hour”, “quick” = 30 min), calories, cuisine and exclusions (“no X”, “without X”, “allergic to X”). The remaining text is split on commas, “and” and similar words, lead-ins such as “I have” are removed, and each chunk is normalized to the corpus vocabulary in five stages: (1) cleaning of quantities, units, prep words and accents; (2) singularisation; (3) a hand-built synonym map of about 230 entries covering Hindi/Hinglish (<i>jeera, haldi, palak, dahi, atta, besan, rajma</i>), British and US names (<i>courgette, double cream, minced beef</i>); (4) exact vocabulary match; (5) fuzzy matching (RapidFuzz, score ≥ 86, ties broken by corpus frequency) with a head-noun backoff. Diet classes (meat, seafood, egg, dairy, honey) come from a lexicon applied to each ingredient, after masking plant phrases that contain an animal word (“coconut milk”, “peanut butter”, “vegetable stock”).</p>
+
+<h3>3.2 D2 · Hybrid retrieval and reranking</h3>
+<p><b>BM25</b> [5] indexes each recipe’s ingredients as tokens, with each multi-word ingredient contributing a joined token and its head noun (<code>red_lentil</code>, <code>lentil</code>). <b>Dense retrieval</b> embeds each recipe with the <code>all-MiniLM-L6-v2</code> sentence encoder and scores by inner product of L2-normalised vectors (equivalent to a FAISS flat index). Document format mattered: embedding the ingredient list alone, in the same format as the query, raised dense MRR from 0.26 to 0.48 compared with “title + cuisine + ingredients”. The two ranked lists (top 100 each) are fused with <b>Reciprocal Rank Fusion</b> [3], score(d) = Σ 1/(60 + rank). <b>Hard filters</b> for diet, time, calories, cuisine and exclusions are applied as a mask before ranking, so every result satisfies them. Finally a <b>coverage reranker</b> scores each candidate as</p>
+<p style="text-align:center"><i>s</i> = (1 − <i>w</i><sub>c</sub> − <i>w</i><sub>u</sub>) · RRF/max RRF + <i>w</i><sub>c</sub> · coverage + <i>w</i><sub>u</sub> · pantry-use − λ · |missing|,</p>
+<p>where <i>coverage</i> is the share of the recipe’s non-staple ingredients the user has and <i>pantry-use</i> is the share of the user’s items the recipe uses. Staples (salt, water, oil, pepper, sugar) count as available, and variety modifiers are treated as the same item (basmati rice ≈ rice) while different foods are not (coconut milk ≠ milk). The weights (<i>w</i><sub>c</sub> = 0.4, <i>w</i><sub>u</sub> = 0.4, λ = 0) were chosen by grid search on 200 dev queries kept separate from the test queries.</p>
+
+<h3>3.3 D3 · Citation-grounded generation and substitutions</h3>
+<p>The top three recipes are given to the LLM with their ID, steps, the ingredients the user has, the missing ingredients, and candidate substitutes. The system prompt requires the model to recommend only retrieved recipes, cite them as <code>[R&lt;id&gt;]</code>, take steps only from the cited recipe and list the missing items. After generation, any cited ID that was not retrieved is removed and visibly flagged. The generator is a local open model (Qwen2.5-1.5B-Instruct, greedy decoding); an API LLM backend and an extractive no-LLM mode are also available. Substitutions come from a curated table of about 90 ingredients with ratios and notes, with a corpus-based fallback: candidates with a similar recipe context (cosine of PPMI co-occurrence vectors) and a similar kind of food (cosine of name embeddings) that rarely occur together with the missing item. Substitutes that break the user’s diet are removed and items already in the pantry are preferred.</p>
+
+<h3>3.4 D4 · Multi-turn chat interface</h3>
+<p>A Streamlit app keeps the pantry and constraints as dialogue state, so users can add or remove ingredients (“I also have peas”, “I don’t have spinach”), change constraints (“make it vegan”, “no garlic”), pick a result (“show me the second one”), ask for substitutes (“instead of curry powder?”) or start a new pantry. The sidebar shows how the message was understood, and an evidence panel shows each retrieved recipe’s BM25 and dense ranks, coverage and missing items.</p>
+
+<h2>4. Evaluation and Results</h2>
+<h3>4.1 D1 · Normalization</h3>
+<div class="two avoid">
+<div>
+<table>
+<tr><th>Stage (cumulative)</th><th class="n">Accuracy</th></tr>
+<tr><td>Exact match only</td><td class="n">4.5%</td></tr>
+<tr><td>+ cleaning</td><td class="n">21.8%</td></tr>
+<tr><td>+ singularisation</td><td class="n">39.7%</td></tr>
+<tr><td>+ synonym map</td><td class="n">75.6%</td></tr>
+<tr class="best"><td>+ fuzzy matching (full)</td><td class="n">91.0%</td></tr>
+<tr><td>Full, without synonym map</td><td class="n">62.8%</td></tr>
+</table>
+<p class="cap">Table 1. Accuracy on 160 hand-labelled surface forms (90 recipe phrases, 70 user terms).</p>
+</div>
+<div>
+<p>We hand-labelled 160 surface forms: 90 real recipe phrases (“2 x 400g cans cherry tomatoes”) and 70 user-style terms including Hindi and British names and misspellings. Each stage adds accuracy; the synonym map gives the largest jump, and without it accuracy on user terms falls from 90.7% to 46.5%. On 25 full pantry messages with gold ingredients and constraints, the parser reaches ingredient precision 0.96, recall 0.95 (F1 0.95) and constraint-field accuracy 0.99. On 68 gold recipe phrases, the assignment’s NER ingredient names (95.6%) beat a rule-based phrase extractor we tried (88.2%), so the corpus keeps the NER names.</p>
+</div>
+</div>
+
+<h3>4.2 D2 · Retrieval ablation</h3>
+<p>Following the proposal, we sampled a recipe, hid it, and used 3–5 of its non-staple ingredients as the pantry; a query succeeds if the hidden recipe is retrieved. We report Recall@k, MRR, and the user-facing quality of the top 5 (average pantry coverage) on 500 test queries.</p>
+<table class="avoid">
+<tr><th>Method</th><th class="n">R@1</th><th class="n">R@5</th><th class="n">R@10</th><th class="n">MRR</th><th class="n">Top-5 coverage</th><th class="n">Top-5 missing</th></tr>
+<tr><td>BM25</td><td class="n">0.85</td><td class="n">0.94</td><td class="n">0.96</td><td class="n">0.89</td><td class="n">34%</td><td class="n">5.5</td></tr>
+<tr><td>Dense (MiniLM)</td><td class="n">0.40</td><td class="n">0.57</td><td class="n">0.62</td><td class="n">0.48</td><td class="n">30%</td><td class="n">4.5</td></tr>
+<tr><td>Hybrid (RRF)</td><td class="n">0.58</td><td class="n">0.75</td><td class="n">0.80</td><td class="n">0.66</td><td class="n">34%</td><td class="n">4.7</td></tr>
+<tr class="best"><td>Hybrid + coverage rerank</td><td class="n">0.83</td><td class="n">0.94</td><td class="n">0.97</td><td class="n">0.88</td><td class="n">41%</td><td class="n">4.8</td></tr>
+</table>
+<p class="cap">Table 2. Retrieval on 500 synthetic hidden-recipe queries (rerank weights tuned on 200 separate dev queries).</p>
+<p>On these clean queries BM25 is very strong, because the query terms are exact ingredient names from the hidden recipe, and plain RRF fusion is <i>worse</i> than BM25 since the weaker dense list pulls the fused ranking down. The coverage reranker restores BM25-level recall (R@5 0.94, R@10 0.97) while returning recipes that use more of the user’s pantry (coverage 34% → 41%, missing items 5.5 → 4.8). Hard filters matter: without them, 55% of top-10 results break the query’s diet or time rule; with them, none do.</p>
+<p><b>Noisy pantry text.</b> Real users do not type canonical names, so we rewrote the same 500 queries the way people type (regional synonyms, plurals, typos, quantities: “makhan”, “tomaot puree”, “a handful of clam, diced”) and retrieved either with the raw strings or after D1 normalization (Figure 1). On raw noisy text, dense retrieval outperforms BM25 (MRR 0.36 vs 0.27), which is the case for hybrid retrieval. After normalization, BM25’s Recall@5 rises from 0.31 to 0.82 and the full reranked system reaches 0.85 (from 0.45 raw), close to its clean-query performance.</p>
+<figure class="avoid"><img src="../results/figures/retrieval_mrr.png" alt="Retrieval MRR by mode and query condition"><figcaption>Figure 1. MRR of each retrieval mode on clean queries, on noisy raw queries and on noisy queries after normalization (500 queries).</figcaption></figure>
+
+<h3>4.3 D3/D4 · Faithfulness of generated answers</h3>
+<p>We asked 15 pantry questions (from our gold set plus synthetic pantries) to PantryRAG and to the same Qwen2.5-1.5B model without retrieval. For each answer we extract mentioned ingredients and steps and check them against a reference recipe: the cited one for PantryRAG and, generously, the corpus recipe that best matches the plain model’s ingredients. A step is grounded if at least 50% of its content words appear in one step of the reference. To validate the metric, the extractive generator (which copies its recipe) scores 0.98 on ingredients and 0.99 on steps.</p>
+<table class="avoid">
+<tr><th>Metric (15 queries)</th><th class="n">PantryRAG</th><th class="n">Plain LLM</th></tr>
+<tr class="best"><td>Steps grounded in a real recipe</td><td class="n">92%</td><td class="n">19%</td></tr>
+<tr><td>Ingredients grounded (plain scored against its best-matching recipe)</td><td class="n">89%</td><td class="n">89%</td></tr>
+<tr><td>Ingredients used but not disclosed as missing (per answer)</td><td class="n">1.07</td><td class="n">0.93</td></tr>
+<tr><td>Answers with a valid recipe-ID citation</td><td class="n">100%</td><td class="n">–</td></tr>
+<tr><td>Diet violations</td><td class="n">0</td><td class="n">0</td></tr>
+</table>
+<p class="cap">Table 3. Faithfulness of answers from the same model with and without retrieval.</p>
+<p>PantryRAG’s steps are almost always backed by a real recipe (92% vs 19%), and every answer carries a valid citation; the citation check removed 7 IDs that the small model wrote incorrectly. Ingredient grounding is equal only because we credited the plain model with its best-matching corpus recipe. Missing-ingredient disclosure did not improve: the 1.5B model sometimes drops items from the missing list it is given, whereas the extractive mode always shows the full list. A qualitative example illustrates the difference: for the paneer pantry, the plain model invented a “Paneer Tikka Masala” with five generic steps and claimed nothing was missing, while PantryRAG recommended a cited recipe [Rbbc8708], listed butter, egg, dill and nutmeg as missing, and reproduced its ten steps.</p>
+<p><b>Human evaluation.</b> We built a blinded A/B evaluation tool (<code>make_human_eval.py</code>) that randomises answer order and collects 1–5 ratings for relevance, feasibility and correctness plus an overall preference. Ratings had not yet been collected at the time of writing; this is noted as a limitation below.</p>
+
+<h2>5. Discussion and Limitations</h2>
+<ul>
+<li><b>Normalization is half of retrieval.</b> On realistic text, D1 lifted the full system’s Recall@5 from 0.45 to 0.85, more than any retrieval change.</li>
+<li><b>Hybrid retrieval needs care.</b> Naive RRF trailed BM25 on ingredient queries; matching the dense document format to the query and reranking for pantry coverage were needed for the hybrid system to match BM25 recall while giving more cookable results.</li>
+<li><b>Grounding keeps a small model honest about steps</b>, but not yet about missing ingredients; a larger model or the extractive mode is needed there.</li>
+<li><b>Limitations.</b> The RecipeDB API quota prevented using RecipeDB as the main corpus; retrieval queries are synthetic; the generation study has 15 queries; human ratings were not collected; most recipes only have prep time, so the time filter is approximate unless a recipe is enriched from its page.</li>
+<li><b>Engineering notes.</b> float16 inference on Apple MPS caused the 1.5B model to loop on long RAG prompts; float32 fixed it. Importing FAISS together with PyTorch crashed on macOS, so we use exact NumPy inner-product search, which is equivalent at this corpus size.</li>
+</ul>
+
+<h2>6. Conclusion</h2>
+<p>PantryRAG turns an informal pantry description into cited, checkable recipe suggestions with missing-ingredient lists and substitutions. The evaluation shows that ingredient normalization is essential for real pantry text, that hybrid retrieval only pays off with coverage-aware reranking, and that restricting generation to retrieved recipes makes 92% of generated steps verifiable against 19% without retrieval. Next steps are to run the pipeline on the full RecipeDB corpus, add nutrition goals using USDA data, collect human ratings, and use a larger generator.</p>
+
+<h2>Contributions</h2>
+<p><b>Aditya Kantiwal</b> led D1 (data pipeline, normalization, diet labels) and D4 (evaluation, demo interface). <b>Sahitya</b> led D2 (hybrid retrieval and reranking) and D3 (grounded generation and substitutions). Both members contributed to the evaluation, report and presentation.</p>
+
+<h2>References</h2>
+<ol class="refs">
+<li>P. Lewis et al., “Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks,” NeurIPS, 2020.</li>
+<li>D. Batra et al., “RecipeDB: a resource for exploring recipes,” Database, 2020.</li>
+<li>G. V. Cormack, C. L. A. Clarke, S. Büttcher, “Reciprocal Rank Fusion outperforms Condorcet and individual rank learning methods,” SIGIR, 2009.</li>
+<li>J. Marín et al., “Recipe1M+: A Dataset for Learning Cross-Modal Embeddings for Cooking Recipes and Food Images,” IEEE TPAMI, 2021.</li>
+<li>S. Robertson, H. Zaragoza, “The Probabilistic Relevance Framework: BM25 and Beyond,” Foundations and Trends in IR, 2009.</li>
+<li>N. Reimers, I. Gurevych, “Sentence-BERT: Sentence Embeddings using Siamese BERT-Networks,” EMNLP, 2019.</li>
+</ol>
+
+</body>
+</html>

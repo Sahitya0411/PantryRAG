@@ -19,3 +19,6 @@ Group44_A1_CGAS/
 .claude/
 # personal presentation notes (kept locally)
 report/speech.md
+# presentation export (submitted separately)
+*.pptx
+PantryRAG_PPT.pdf

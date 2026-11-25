@@ -20,6 +20,7 @@ RES = ROOT / "results"
 
 
 def ok(pred, gold_alts):
+    """True if `pred` matches one of the "|"-separated gold answers (up to variety words)."""
     if pred is None:
         return False
     golds = [canonical_form(g) for g in gold_alts.split("|")]
@@ -27,11 +28,13 @@ def ok(pred, gold_alts):
 
 
 def main():
+    """Run the cumulative normalisation ablation and the pantry-parsing evaluation."""
     RES.mkdir(exist_ok=True)
     recipes, vocab = corpus.load()
     names = [k for k, c in vocab.items() if c >= 2]
     rows = list(csv.DictReader(open(ROOT / "data/eval/normalization_gold.csv")))
 
+    # each config switches on one more stage than the previous (cumulative ablation)
     configs = {
         "exact match only": dict(use_clean=False, use_singular=False, use_synonyms=False, use_fuzzy=False),
         "+ cleaning": dict(use_clean=True, use_singular=False, use_synonyms=False, use_fuzzy=False),
@@ -66,6 +69,8 @@ def main():
     for g in qs:
         q = parse_pantry(g["text"], norm)
         gold = list(g["ingredients"])
+        # one-to-one matching: each gold ingredient can be credited to only one
+        # prediction, so duplicates count as false positives
         matched = set()
         for p in q.ingredients:
             hit = next((i for i, alts in enumerate(gold) if i not in matched and ok(p, alts)), None)

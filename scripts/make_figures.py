@@ -22,6 +22,7 @@ plt.rcParams.update({
 
 
 def _labels(ax, bars, fmt="{:.2f}"):
+    """Write each bar's value just above it."""
     for b in bars:
         ax.annotate(fmt.format(b.get_height()), (b.get_x() + b.get_width() / 2, b.get_height()),
                     xytext=(0, 2), textcoords="offset points", ha="center", va="bottom",
@@ -29,9 +30,12 @@ def _labels(ax, bars, fmt="{:.2f}"):
 
 
 def grouped(ax, groups, series, values, ymax=1.0, fmt="{:.2f}"):
+    """Grouped bar chart: one cluster per group, one coloured bar per series.
+    `values[series][group]` gives each bar's height."""
     n = len(series)
     w = 0.8 / n
     for j, name in enumerate(series):
+        # offset each series so the bars of a group are centred on its tick
         xs = [i + (j - (n - 1) / 2) * w for i in range(len(groups))]
         bars = ax.bar(xs, [values[name][g] for g in groups], width=w - 0.03,
                       color=SERIES[j], label=name, edgecolor=SURFACE, linewidth=1)
@@ -43,6 +47,7 @@ def grouped(ax, groups, series, values, ymax=1.0, fmt="{:.2f}"):
 
 
 def main():
+    """Draw every figure whose results file exists."""
     FIG.mkdir(parents=True, exist_ok=True)
     made = []
 

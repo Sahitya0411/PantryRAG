@@ -13,6 +13,7 @@ N = Normalizer(VOCAB)
 
 
 def test_clean_and_singular():
+    """Cleaning drops quantities/units/descriptors; singular and accent handling work."""
     assert clean("2 cups Paneer cubes, chopped") == "paneer"
     assert singularize("tomatoes") == "tomato"
     assert singularize("berries") == "berry"
@@ -20,6 +21,7 @@ def test_clean_and_singular():
 
 
 def test_normalize_synonyms_and_fuzzy():
+    """Regional names map via synonyms and misspellings via fuzzy matching."""
     assert N.normalize("capsicum").canonical == "bell pepper"
     assert N.normalize("curd").canonical == "yogurt"
     assert N.normalize("jeera").canonical == "cumin"
@@ -30,6 +32,7 @@ def test_normalize_synonyms_and_fuzzy():
 
 
 def test_parse_pantry_constraints():
+    """Ingredients, diet, time, cuisine and exclusions are parsed from one message."""
     q = parse_pantry("I have paneer, spinach, rice, onion and tomato; vegetarian, under 30 minutes", N)
     assert q.ingredients == ["paneer", "spinach", "rice", "onion", "tomato"]
     assert q.diet == "vegetarian" and q.max_minutes == 30
@@ -39,6 +42,7 @@ def test_parse_pantry_constraints():
 
 
 def test_diet_rules():
+    """Diet labels, including plant items with animal words ("coconut milk")."""
     assert recipe_diets(["paneer", "spinach"])["vegetarian"]
     assert not recipe_diets(["paneer", "spinach"])["vegan"]
     assert recipe_diets(["coconut milk", "eggplant", "peanut butter"])["vegan"]
@@ -46,6 +50,7 @@ def test_diet_rules():
 
 
 def test_head_match_and_coverage():
+    """Variety-level matching and pantry coverage (staples like salt are ignored)."""
     assert _head_match("basmati rice", "rice")
     assert _head_match("chicken breast", "chicken")
     assert not _head_match("coconut milk", "milk")
@@ -56,6 +61,7 @@ def test_head_match_and_coverage():
 
 
 def test_citations_checked():
+    """Citations outside the retrieved set are reported as invalid."""
     r = Recipe("42", "X", ["a", "b", "c"], ["do it"])
     hits = [Hit(r, 1.0)]
     valid, invalid = check_citations("Make X [R42], or Y [R99]", hits)
@@ -63,6 +69,7 @@ def test_citations_checked():
 
 
 def test_extractive_answer_cites():
+    """The no-LLM answer cites its recipe and lists the missing ingredient."""
     r = Recipe("7", "Dal", ["red lentil", "onion", "cumin"], ["boil lentils", "temper cumin"])
     q = parse_pantry("red lentil, onion", Normalizer(["red lentil", "onion", "cumin"]))
     h = Hit(r, 1.0, matched=["red lentil", "onion"], missing=["cumin"], coverage=2 / 3)
@@ -71,6 +78,7 @@ def test_extractive_answer_cites():
 
 
 def test_diet_mixed_phrases():
+    """A meat word next to a plant phrase is still caught ("chicken vegetable stock")."""
     assert not recipe_diets(["chicken vegetable stock"])["vegan"]
     assert recipe_diets(["vegetable stock", "butternut squash"])["vegan"]
 

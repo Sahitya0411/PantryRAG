@@ -15,9 +15,11 @@ st.set_page_config(page_title="PantryRAG", page_icon="🥘", layout="wide")
 
 @st.cache_resource(show_spinner="Loading recipe index and models…")
 def load_rag(backend: str) -> PantryRAG:
+    """Build the pipeline once per backend; Streamlit caches it across reruns."""
     return PantryRAG(llm=backend)
 
 
+# ---- sidebar: backend choice, corpus name, example prompts
 with st.sidebar:
     st.title("🥘 PantryRAG")
     st.caption("Pantry-based recipe chatbot · hybrid retrieval-augmented generation")
@@ -41,6 +43,8 @@ with st.sidebar:
 
 Also: “I also have peas”, “I don’t have spinach”, “no garlic”, “under 20 minutes”""")
 
+# Streamlit reruns this script on every interaction, so the chat session lives in
+# session_state; switching backend starts a new conversation
 rag = load_rag(backend)
 if "chat" not in st.session_state or st.session_state.get("backend") != backend:
     st.session_state.chat = ChatSession(rag)
@@ -48,6 +52,7 @@ if "chat" not in st.session_state or st.session_state.get("backend") != backend:
     st.session_state.backend = backend
 chat: ChatSession = st.session_state.chat
 
+# replay the conversation so far
 for m in st.session_state.msgs:
     with st.chat_message(m["role"]):
         st.markdown(m["content"])
@@ -62,6 +67,7 @@ if prompt := st.chat_input("What's in your pantry?"):
         st.markdown(reply)
     st.session_state.msgs.append({"role": "assistant", "content": reply})
 
+# ---- show what the system understood and the evidence it used
 q = chat.state.query
 if q is not None:
     with st.sidebar:

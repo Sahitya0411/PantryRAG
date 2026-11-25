@@ -31,11 +31,14 @@ SUFFIX = [", diced", ", sliced", " (optional)", "", "", ""]
 
 
 def perturb(ing: str, reverse: dict, rng: random.Random) -> str:
+    """Make a canonical ingredient look user-typed: regional synonym or plural,
+    sometimes a typo, sometimes a quantity/prep prefix and suffix."""
     s = ing
     if ing in reverse and rng.random() < 0.7:
         s = rng.choice(reverse[ing])
     elif rng.random() < 0.5 and not s.endswith("s"):
         s = s + ("es" if s.endswith(("o", "ch", "sh")) else "s")
+    # typo: swap two adjacent characters
     if len(s) > 5 and rng.random() < 0.15:
         i = rng.randint(1, len(s) - 3)
         s = s[:i] + s[i + 1] + s[i] + s[i + 2:]
@@ -45,6 +48,7 @@ def perturb(ing: str, reverse: dict, rng: random.Random) -> str:
 
 
 def main():
+    """Evaluate every retrieval mode on clean, noisy-raw and noisy-normalised queries."""
     ap = argparse.ArgumentParser()
     ap.add_argument("--n", type=int, default=500)
     ap.add_argument("--seed", type=int, default=43)
@@ -52,6 +56,7 @@ def main():
     recipes, vocab = corpus.load()
     R = Retriever.load(recipes)
     norm = Normalizer([k for k, c in vocab.items() if c >= 2], vocab)
+    # canonical name -> regional names that map to it, used to inject synonyms
     reverse = defaultdict(list)
     for k, v in SYNONYMS.items():
         reverse[canonical_form(v)].append(k)

@@ -22,8 +22,11 @@ from rapidfuzz import fuzz, process
 
 from .lexicon import DESCRIPTORS, SYNONYMS, UNITS
 
+# quantities ("2", "1.5", "1/2") and any character that is not a letter, space,
+# hyphen or apostrophe
 _NUM = re.compile(r"\d+([./]\d+)?")
 _PUNCT = re.compile(r"[^a-z\s\-']")
+# active descriptors only: entries ending in "_" are disabled in lexicon.py
 _DESC = {d.rstrip("_") for d in DESCRIPTORS if not d.endswith("_")}
 
 # words where trailing 's' is not a plural
@@ -34,6 +37,10 @@ _NO_SINGULAR = {"asparagus", "madras", "molasses_", "hummus", "couscous", "molas
 
 
 def singularize(word: str) -> str:
+    """Naive English singular: "tomatoes" -> "tomato", "berries" -> "berry".
+
+    Short words, known exceptions ("hummus", "rice") and words ending in
+    -ss/-us/-is are returned unchanged."""
     if len(word) <= 3 or word in _NO_SINGULAR or word.endswith(("ss", "us", "is")):
         return word
     if word.endswith("ies"):
@@ -48,8 +55,12 @@ def singularize(word: str) -> str:
 
 
 def clean(text: str, drop_descriptors: bool = True) -> str:
+    """Lowercase and strip accents, bracketed notes, numbers, units, punctuation and
+    (optionally) prep descriptors: "2 cups Paneer cubes, chopped" -> "paneer"."""
+    # NFKD splits "è" into "e" + accent mark; the ASCII encode then drops the mark
     t = unicodedata.normalize("NFKD", text.lower()).encode("ascii", "ignore").decode()
     t = t.replace("&", " and ")
+    # drop bracketed notes such as "(optional)" or "(about 200g)"
     t = re.sub(r"\(.*?\)", " ", t)
     t = _NUM.sub(" ", t)
     t = _PUNCT.sub(" ", t.replace("-", " "))
@@ -67,6 +78,8 @@ def canonical_form(name: str) -> str:
 
 @dataclass
 class NormResult:
+    """Outcome of normalising one surface form: the canonical name (or None), which
+    stage produced it, and a match score (100 for exact/synonym matches)."""
     surface: str
     canonical: str | None
     method: str  # exact | synonym | fuzzy | head | none
@@ -74,6 +87,12 @@ class NormResult:
 
 
 class Normalizer:
+    """Maps user or recipe ingredient text onto a fixed vocabulary.
+
+    `vocab` is the list of canonical names, `freq` their corpus counts (used to break
+    ties toward common ingredients). The use_* flags switch pipeline stages on/off
+    for the ablation study; `fuzzy_threshold` is the minimum RapidFuzz score."""
+
     def __init__(self, vocab: list[str], freq: dict[str, int] | None = None,
                  use_clean=True, use_singular=True, use_synonyms=True, use_fuzzy=True,
                  fuzzy_threshold: float = 86.0):
@@ -90,6 +109,7 @@ class Normalizer:
         self._max_syn_len = max(len(k.split()) for k in self.synonyms)
 
     def _prep(self, text: str) -> str:
+        """Apply the enabled cleaning and singularisation stages to `text`."""
         t = clean(text) if self.use_clean else text.lower().strip()
         if self.use_singular:
             t = " ".join(singularize(w) for w in t.split())
@@ -110,9 +130,14 @@ class Normalizer:
 
     @lru_cache(maxsize=50_000)
     def normalize(self, surface: str) -> NormResult:
+        """Normalise one ingredient string, trying exact -> synonym -> fuzzy -> head noun.
+
+        Results are cached because the same strings recur across queries and evals."""
         t = self._prep(surface)
         if not t:
             return NormResult(surface, None, "none", 0)
+        # an exact hit wins, unless the word is also a synonym whose target is in the
+        # vocab (e.g. "coriander" -> "cilantro"): then the synonym map decides
         if t in self.vocab_set and not (self.use_synonyms and t in self.synonyms
                                         and self.synonyms[t] in self.vocab_set):
             return NormResult(surface, t, "exact")
@@ -127,6 +152,7 @@ class Normalizer:
                 for i in range(len(words) - n + 1):
                     g = " ".join(words[i:i + n])
                     if g in self.synonyms:
+                        # try the phrase with the synonym swapped in, then the synonym alone
                         rest = " ".join(words[:i] + [self.synonyms[g]] + words[i + n:])
                         for cand in (rest, self.synonyms[g]):
                             tgt = cand if cand in self.vocab_set else None
@@ -153,6 +179,8 @@ class Normalizer:
         return NormResult(surface, None, "none", 0)
 
     def normalize_many(self, items: list[str]) -> list[str]:
+        """Normalise a list of strings; returns unique canonical names in input order,
+        silently dropping items that could not be resolved."""
         out, seen = [], set()
         for it in items:
             r = self.normalize(it)
@@ -163,6 +191,8 @@ class Normalizer:
 
 
 # ---------------------------------------------------------------- recipe phrases
+# Words that start the "how to prepare it" tail of a recipe phrase. Everything from
+# the first match onward is cut: "salmon fillets, skin removed" -> "salmon fillets".
 _TAIL = re.compile(
     r",|\(|\bcut\b|\bon the\b|\bto serve\b|\bto garnish\b|\bfor\b|\bplus\b|\bor\b|\binto\b|"
     r"\blarger\b|\bat room\b|\bdivided\b|\bseparated\b|\bif\b|\bsuch as\b|\bin\b|\bwith\b|"
@@ -193,6 +223,8 @@ def phrase_to_name(phrase: str) -> str:
 
 
 def strip_part(name: str, names: dict[str, int], head_min: int = 5) -> str:
+    """Drop a trailing part-word ("parsley leaf" -> "parsley") when the remaining
+    name occurs at least `head_min` times in `names`; fixed terms like "bay leaf" are kept."""
     w = name.split()
     if len(w) > 1 and w[-1] in _PART and name not in _KEEP_PART:
         rest = " ".join(w[:-1])
@@ -211,6 +243,8 @@ def backoff_names(names: dict[str, int], min_count: int = 3, head_min: int = 5) 
             continue
         w = n.split()
         target = n
+        # drop leading words one at a time; the first suffix that is frequent wins,
+        # so the longest (most specific) frequent suffix is chosen
         for k in range(1, len(w)):
             suf = " ".join(w[k:])
             if names.get(suf, 0) >= head_min:

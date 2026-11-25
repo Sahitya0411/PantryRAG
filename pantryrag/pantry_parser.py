@@ -26,6 +26,8 @@ CUISINES = {
     "scandinavian": "scandinavian", "south american": "south american", "brazilian": "brazilian",
 }
 
+# (diet, regex) pairs checked in order; the first match wins, so the stricter
+# diets (vegan, eggless) are listed before plain "vegetarian".
 DIET_PATTERNS = [
     ("vegan", r"\bvegan\b|plant[- ]based|no animal products?"),
     ("eggless_vegetarian", r"\beggless\b|\bjain\b|vegetarian,? no eggs?|no eggs?.{0,20}vegetarian"),
@@ -33,17 +35,26 @@ DIET_PATTERNS = [
     ("pescatarian", r"\bpescatarian\b|\bpescetarian\b"),
     ("dairy_free", r"dairy[- ]free|no dairy|lactose[- ]intolerant|without dairy"),
 ]
+# Negative cue ("no", "without", "allergic to", ...) followed by a short phrase
+# (lazy, at most ~30 chars) that ends at punctuation, "and"/"or", or the end of
+# the text. Group 1 is the excluded ingredient: "no garlic, ..." -> "garlic".
 EXCLUDE_RE = re.compile(
     r"\b(?:no|without|avoid|avoiding|exclude|excluding|minus|not|allergic to|hate|don'?t like|"
     r"don'?t want|skip)\s+([a-z][a-z \-]{1,30}?)(?=[,.;!?]|\band\b|\bor\b|$)")
+# Time limit: "under 30 minutes", "in 1 hour", "max 45 min". Group 1 = number,
+# group 2 = unit (anything starting with "h" is hours and converted to minutes).
 TIME_RE = re.compile(
     r"(?:under|less than|within|in|max(?:imum)?|at most|<|below|no more than)\s*(\d+(?:\.\d+)?)\s*"
     r"(min(?:ute)?s?|h(?:ou)?rs?|hours?)\b")
+# Calorie limit: "under 500 kcal", "< 400 calories" (2-4 digit numbers only).
 CAL_RE = re.compile(r"(?:under|less than|below|max(?:imum)?|<|at most)\s*(\d{2,4})\s*(?:k?cal|calories)")
+# Conversational openers removed from the start of each chunk, e.g.
+# "hi, I have", "what can I make with", "my fridge has", "also".
 LEAD_IN = re.compile(
     r"^(?:hi|hey|hello)?[ ,]*(?:i(?:'ve| have)?(?: only)?(?: got)?|i've got|we have|there(?:'s| is| are)|"
     r"my (?:pantry|fridge) has|what can i (?:make|cook) with|suggest (?:a )?(?:recipe|something) with|"
     r"(?:a )?recipe (?:using|with)|using|with|got|have|only|just|also|plus)\b[: ,]*")
+# Chunks that are filler words, not ingredients.
 NOISE_CHUNKS = {"", "please", "thanks", "thank you", "something", "anything", "ideas", "quick",
                 "dinner", "lunch", "breakfast", "snack", "recipe", "recipes", "help", "easy",
                 "healthy", "tonight", "today"}
@@ -51,6 +62,8 @@ NOISE_CHUNKS = {"", "please", "thanks", "thank you", "something", "anything", "i
 
 @dataclass
 class PantryQuery:
+    """A parsed user request: canonical pantry ingredients, chunks we could not
+    recognise, and hard constraints (diet, exclusions, time, calories, cuisine)."""
     text: str
     ingredients: list[str] = field(default_factory=list)
     unresolved: list[str] = field(default_factory=list)
@@ -61,6 +74,7 @@ class PantryQuery:
     cuisine: str | None = None
 
     def constraints_text(self) -> str:
+        """Human-readable summary of the constraints, or "none"."""
         parts = []
         if self.diet:
             parts.append(self.diet.replace("_", " "))
@@ -77,6 +91,8 @@ class PantryQuery:
 
 def parse_constraints(text: str, norm: Normalizer) -> tuple[dict, str]:
     """Return constraint dict and the text with constraint spans removed."""
+    # pad with spaces so \b patterns match at the very start/end. Each matched span is
+    # replaced by " , " so the leftover text still splits cleanly into ingredients.
     t = " " + text.lower() + " "
     c: dict = {}
     for diet, pat in DIET_PATTERNS:
@@ -90,11 +106,13 @@ def parse_constraints(text: str, norm: Normalizer) -> tuple[dict, str]:
         c["max_minutes"] = v * 60 if m.group(2).startswith("h") else v
         t = t[:m.start()] + " , " + t[m.end():]
     elif re.search(r"\b(quick|fast|in a hurry|short on time)\b", t):
+        # a vague "quick" is read as a 30-minute limit
         c["max_minutes"] = 30
     m = CAL_RE.search(t)
     if m:
         c["max_calories"] = float(m.group(1))
         t = t[:m.start()] + " , " + t[m.end():]
+    # longest keyword first, so "south indian" is matched before "indian"
     for kw in sorted(CUISINES, key=len, reverse=True):
         if re.search(rf"\b{kw}\b", t):
             c["cuisine"] = kw
@@ -103,6 +121,7 @@ def parse_constraints(text: str, norm: Normalizer) -> tuple[dict, str]:
     excl = []
     for m in EXCLUDE_RE.finditer(t):
         phrase = m.group(1).strip()
+        # "no time", "not sure", "without oven" etc. are not ingredient exclusions
         if phrase in {"time", "oven", "more", "much", "too", "sure"}:
             continue
         r = norm.normalize(phrase)
@@ -110,6 +129,7 @@ def parse_constraints(text: str, norm: Normalizer) -> tuple[dict, str]:
     if excl:
         c["exclude"] = excl
         t = EXCLUDE_RE.sub(" , ", t)
+    # strip leftover request wording so it is not mistaken for an ingredient
     t = re.sub(r"\b(minutes?|mins?|calories|please|thanks|make|cook|for|dinner|lunch|"
                r"breakfast|tonight|something|anything|want|would like|like|can|you|suggest|"
                r"what|recipe|recipes|dish|meal|ideas?|i)\b", " ", t)
@@ -117,6 +137,9 @@ def parse_constraints(text: str, norm: Normalizer) -> tuple[dict, str]:
 
 
 def split_items(text: str) -> list[str]:
+    """Split free text into candidate ingredient chunks and drop lead-ins and filler."""
+    # separators: , ; newline / + & "and" "plus" "also", and a period followed by
+    # whitespace (sentence end), so decimals like "1.5" are not split
     parts = re.split(r"[,;\n/+]|\.(?=\s)|\band\b|&|\bplus\b|\balso\b", text)
     out = []
     for p in parts:
@@ -127,6 +150,8 @@ def split_items(text: str) -> list[str]:
 
 
 def parse_pantry(text: str, norm: Normalizer) -> PantryQuery:
+    """Parse a pantry message into a PantryQuery: constraints first, then each
+    remaining chunk is normalised to a canonical ingredient."""
     cons, rest = parse_constraints(text, norm)
     q = PantryQuery(text=text, **cons)
     seen = set()
@@ -139,13 +164,17 @@ def parse_pantry(text: str, norm: Normalizer) -> PantryQuery:
                 for i in range(len(words) - n + 1):
                     g = " ".join(words[i:i + n])
                     rr = norm.normalize(g)
+                    # only trust exact/synonym hits here: fuzzy matching on short
+                    # n-grams like "from" would produce false ingredients
                     if rr.canonical and rr.method in {"exact", "synonym"}:
                         found.append(rr.canonical)
                 if found:
+                    # stop at the longest n-gram size that found something
                     break
         if not found:
             q.unresolved.append(chunk)
         for f in found:
+            # an explicit exclusion ("no garlic") overrides a listed ingredient
             if f not in seen and f not in q.exclude:
                 seen.add(f)
                 q.ingredients.append(f)

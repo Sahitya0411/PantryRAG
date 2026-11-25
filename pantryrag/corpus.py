@@ -28,6 +28,8 @@ PROCESSED = ROOT / "data" / "processed"
 
 @dataclass
 class Recipe:
+    """One cleaned recipe: canonical ingredient names, steps, and the metadata
+    (time, calories, cuisine, diet labels) used by the retrieval filters."""
     id: str
     title: str
     ingredients: list[str]
@@ -47,6 +49,7 @@ class Recipe:
 
     @property
     def cuisine_text(self) -> str:
+        """Region, sub-region and continent as one lowercase string (for the cuisine filter)."""
         return " | ".join(x for x in (self.region, self.sub_region, self.continent) if x).lower()
 
     def as_document(self) -> str:
@@ -64,6 +67,7 @@ class Recipe:
 
 
 def _num(x):
+    """Parse a positive number; RecipeDB uses 0 / blanks for "unknown", so those become None."""
     try:
         v = float(x)
         return v if v > 0 else None
@@ -75,6 +79,8 @@ SCRAPED = ROOT / "data" / "raw" / "bbc_scraped.jsonl"
 
 
 def _iso_minutes(s):
+    """Convert an ISO-8601 duration such as "PT1H30M" (schema.org format) to minutes."""
+    # optional hours group then optional minutes group; reject strings with neither
     m = re.fullmatch(r"P(?:T)?(?:(\d+)H)?(?:(\d+)M)?", str(s or "").strip())
     if not m or not (m.group(1) or m.group(2)):
         return None
@@ -88,9 +94,11 @@ def _load_scraped() -> dict[str, dict]:
     out = {}
     for line in SCRAPED.read_text().splitlines():
         r = json.loads(line)
+        # calories arrive as text like "412 calories"; keep only the leading number
         cal = re.match(r"(\d+)", str((r.get("nutrition") or {}).get("calories") or ""))
         diets = r.get("suitableForDiet") or []
         diets = [diets] if isinstance(diets, str) else diets
+        # diet tags are schema.org URLs ("https://schema.org/VegetarianDiet") -> "vegetarian"
         out[r["url"]] = {
             "total_minutes": _iso_minutes(r.get("totalTime")),
             "calories": float(cal.group(1)) if cal else None,
@@ -102,6 +110,11 @@ def _load_scraped() -> dict[str, dict]:
 
 
 def build(source: str = "recipedb", min_ingredients: int = 3) -> tuple[list[Recipe], Counter]:
+    """Clean the raw JSONL for `source` into Recipe objects.
+
+    Ingredient names are canonicalised, recipes with fewer than `min_ingredients`
+    ingredients, no steps or no title are dropped, and duplicates are removed.
+    Returns (recipes, ingredient frequency counter)."""
     recipes, freq = [], Counter()
     scraped = _load_scraped() if source == "bbc" else {}
     seen_titles = set()
@@ -109,6 +122,7 @@ def build(source: str = "recipedb", min_ingredients: int = 3) -> tuple[list[Reci
         r = json.loads(line)
         ings = []
         for i in r.get("ingredients", []):
+            # canonical name, then fold safe synonyms so one ingredient = one token
             c = canonical_form(i["name"])
             c = CORPUS_SYNONYMS.get(c, c)
             if c and c not in ings:
@@ -117,6 +131,7 @@ def build(source: str = "recipedb", min_ingredients: int = 3) -> tuple[list[Reci
         title = (r.get("Recipe_title") or "").strip()
         if len(ings) < min_ingredients or not steps or not title:
             continue
+        # drop duplicate recipes: same title and same ingredient set
         key = (title.lower(), tuple(sorted(ings)))
         if key in seen_titles:
             continue
@@ -142,12 +157,14 @@ def build(source: str = "recipedb", min_ingredients: int = 3) -> tuple[list[Reci
 
 
 def save(recipes: list[Recipe], freq: Counter) -> None:
+    """Write the cleaned recipes and the ingredient vocabulary (with counts) to data/processed/."""
     PROCESSED.mkdir(parents=True, exist_ok=True)
     (PROCESSED / "recipes.json").write_text(json.dumps([asdict(r) for r in recipes]))
     (PROCESSED / "vocab.json").write_text(json.dumps(dict(freq.most_common())))
 
 
 def load() -> tuple[list[Recipe], dict[str, int]]:
+    """Read the processed corpus back. Returns (recipes, {ingredient: frequency})."""
     rows = json.loads((PROCESSED / "recipes.json").read_text())
     vocab = json.loads((PROCESSED / "vocab.json").read_text())
     return [Recipe(**r) for r in rows], vocab

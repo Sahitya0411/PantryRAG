@@ -23,6 +23,7 @@ OUT = ROOT / "data" / "raw" / "bbc_recipes.jsonl"
 
 
 def iso_minutes(s) -> float | None:
+    """Convert an ISO-8601 duration such as "PT1H30M" to minutes (None if invalid)."""
     if not isinstance(s, str):
         return None
     m = re.fullmatch(r"PT(?:(\d+)H)?(?:(\d+)M)?", s.strip())
@@ -32,6 +33,7 @@ def iso_minutes(s) -> float | None:
 
 
 def main():
+    """Join the raw recipe CSV with its NER ingredient names and write bbc_recipes.jsonl."""
     ap = argparse.ArgumentParser()
     ap.add_argument("--dir", required=True)
     args = ap.parse_args()
@@ -47,6 +49,7 @@ def main():
     n = 0
     with open(OUT, "w") as f:
         for i, row in enumerate(raw.itertuples(index=False), start=1):
+            # the NER file refers to recipes by row number as "Recipe <i>"
             rid = f"Recipe {i}"
             try:
                 steps_raw = ast.literal_eval(row.instructions)
