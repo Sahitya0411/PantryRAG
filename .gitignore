@@ -1,0 +1,21 @@
+# secrets
+.env
+*.env
+# environments / caches
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.DS_Store
+# large / regenerable data
+data/raw/
+data/processed/
+results/*.log
+results/human_eval/key.json
+
+# course-assignment data (kept locally; read by scripts/import_bbc.py --dir)
+Group44_A1_CGAS/
+# local tooling
+.claude/
+# personal presentation notes (kept locally)
+report/speech.md

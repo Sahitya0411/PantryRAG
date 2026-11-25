@@ -1,0 +1,23 @@
+{
+  "rag": {
+    "ingredient_grounding": 0.886,
+    "step_grounding": 0.92,
+    "n_steps": 8.667,
+    "unflagged_missing": 1.067,
+    "diet_violation": 0.0,
+    "citation_validity": 0.873,
+    "has_citation": 1.0,
+    "n": 15
+  },
+  "plain": {
+    "ingredient_grounding": 0.894,
+    "step_grounding": 0.192,
+    "n_steps": 6.4,
+    "unflagged_missing": 0.933,
+    "diet_violation": 0.0,
+    "citation_validity": null,
+    "has_citation": null,
+    "n": 15
+  },
+  "backend": "hf:Qwen/Qwen2.5-1.5B-Instruct"
+}

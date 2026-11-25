@@ -1,0 +1,11 @@
+numpy>=1.26
+pandas>=2.0
+rank-bm25>=0.2.2
+rapidfuzz>=3.0
+sentence-transformers>=3.0
+transformers>=4.45
+torch>=2.2
+streamlit>=1.40
+matplotlib>=3.8
+anthropic>=0.70   # optional: Claude backend
+pytest>=8.0

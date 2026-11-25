@@ -1,0 +1,183 @@
+{
+  "n": 500,
+  "corpus_source": "bbc",
+  "examples": [
+    [
+      [
+        "bacon lardons",
+        "leftover onion",
+        "a handful of clam, diced"
+      ],
+      [
+        "bacon lardon",
+        "onion",
+        "clam"
+      ]
+    ],
+    [
+      [
+        "makhan",
+        "chopped glac eacute fruit",
+        "leftover almond, sliced",
+        "kishmish"
+      ],
+      [
+        "butter",
+        "fruit",
+        "almond",
+        "raisin"
+      ]
+    ],
+    [
+      [
+        "tomaot puree_",
+        "spring greens",
+        "1 tbsp du nduja (optional)"
+      ],
+      [
+        "tomato pure",
+        "spring greens",
+        "du nduja"
+      ]
+    ],
+    [
+      [
+        "a handful of ground beefs",
+        "chaat maaslas",
+        "garam masala powder",
+        "leftover chutney onion ring lemon wedge, diced"
+      ],
+      [
+        "ground beef",
+        "chaat masala",
+        "garam masala",
+        "onion"
+      ]
+    ],
+    [
+      [
+        "fresh coirander",
+        "lasun",
+        "2 cups tamatar"
+      ],
+      [
+        "garlic",
+        "tomato"
+      ]
+    ]
+  ],
+  "clean": {
+    "bm25": {
+      "R@1": 0.846,
+      "R@5": 0.936,
+      "R@10": 0.962,
+      "R@20": 0.982,
+      "MRR": 0.886,
+      "top5_coverage": 0.335,
+      "top5_missing": 5.476
+    },
+    "dense": {
+      "R@1": 0.402,
+      "R@5": 0.572,
+      "R@10": 0.616,
+      "R@20": 0.696,
+      "MRR": 0.48,
+      "top5_coverage": 0.302,
+      "top5_missing": 4.464
+    },
+    "hybrid": {
+      "R@1": 0.576,
+      "R@5": 0.748,
+      "R@10": 0.804,
+      "R@20": 0.888,
+      "MRR": 0.657,
+      "top5_coverage": 0.343,
+      "top5_missing": 4.746
+    },
+    "hybrid_rerank": {
+      "R@1": 0.826,
+      "R@5": 0.94,
+      "R@10": 0.974,
+      "R@20": 0.988,
+      "MRR": 0.876,
+      "top5_coverage": 0.407,
+      "top5_missing": 4.827
+    }
+  },
+  "noisy_raw": {
+    "bm25": {
+      "R@1": 0.224,
+      "R@5": 0.312,
+      "R@10": 0.364,
+      "R@20": 0.408,
+      "MRR": 0.268,
+      "top5_coverage": 0.103,
+      "top5_missing": 6.019
+    },
+    "dense": {
+      "R@1": 0.294,
+      "R@5": 0.426,
+      "R@10": 0.486,
+      "R@20": 0.546,
+      "MRR": 0.36,
+      "top5_coverage": 0.048,
+      "top5_missing": 6.09
+    },
+    "hybrid": {
+      "R@1": 0.262,
+      "R@5": 0.45,
+      "R@10": 0.544,
+      "R@20": 0.624,
+      "MRR": 0.355,
+      "top5_coverage": 0.086,
+      "top5_missing": 5.911
+    },
+    "hybrid_rerank": {
+      "R@1": 0.25,
+      "R@5": 0.452,
+      "R@10": 0.542,
+      "R@20": 0.624,
+      "MRR": 0.347,
+      "top5_coverage": 0.129,
+      "top5_missing": 5.48
+    }
+  },
+  "noisy_normalized": {
+    "bm25": {
+      "R@1": 0.688,
+      "R@5": 0.82,
+      "R@10": 0.882,
+      "R@20": 0.93,
+      "MRR": 0.752,
+      "top5_coverage": 0.326,
+      "top5_missing": 5.425
+    },
+    "dense": {
+      "R@1": 0.296,
+      "R@5": 0.464,
+      "R@10": 0.516,
+      "R@20": 0.598,
+      "MRR": 0.374,
+      "top5_coverage": 0.3,
+      "top5_missing": 4.308
+    },
+    "hybrid": {
+      "R@1": 0.444,
+      "R@5": 0.648,
+      "R@10": 0.724,
+      "R@20": 0.824,
+      "MRR": 0.539,
+      "top5_coverage": 0.339,
+      "top5_missing": 4.633
+    },
+    "hybrid_rerank": {
+      "R@1": 0.646,
+      "R@5": 0.85,
+      "R@10": 0.908,
+      "R@20": 0.942,
+      "MRR": 0.736,
+      "top5_coverage": 0.396,
+      "top5_missing": 4.859
+    }
+  }
+}

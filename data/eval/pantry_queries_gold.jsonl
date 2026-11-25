@@ -1,0 +1,25 @@
+{"text": "I have paneer, spinach, rice, onion and tomato; vegetarian, under 30 minutes", "ingredients": ["paneer", "spinach", "rice", "onion", "tomato"], "diet": "vegetarian", "max_minutes": 30}
+{"text": "got 2 eggs, some leftover rice, spring onions and soya sauce. quick dinner please", "ingredients": ["egg", "rice", "green onion", "soy sauce"], "max_minutes": 30}
+{"text": "chicken breast, capsicum, curd, jeera and haldi - indian, no cream", "ingredients": ["chicken breast|chicken", "bell pepper|pepper", "yogurt", "cumin", "turmeric"], "cuisine": "indian", "exclude": ["cream|heavy cream"]}
+{"text": "aubergine, chickpeas, tinned tomatoes, cumin; vegan", "ingredients": ["eggplant|aubergine", "chickpea", "canned tomato|tomato", "cumin"], "diet": "vegan"}
+{"text": "What can I make with potatoes, cauliflower, peas and garam masala?", "ingredients": ["potato", "cauliflower", "pea", "garam masala"]}
+{"text": "I've got pasta, garlic, olive oil, parmesan and some cherry tomatoes. Italian, in 20 mins", "ingredients": ["pasta", "garlic", "olive oil", "parmesan", "cherry tomato"], "cuisine": "italian", "max_minutes": 20}
+{"text": "salmon fillets, lemon, dill, potatoes", "ingredients": ["salmon", "lemon", "dill", "potato"]}
+{"text": "aloo, pyaz, tamatar, hari mirch aur dhania. veg only", "ingredients": ["potato", "onion", "tomato", "green chile pepper|green chilli|chilli", "cilantro|coriander"], "diet": "vegetarian"}
+{"text": "There's minced beef, kidney beans, onion, chilli powder and a tin of tomatoes. Mexican please", "ingredients": ["ground beef", "kidney bean", "onion", "chili powder|chilli powder", "canned tomato|tomato"], "cuisine": "mexican"}
+{"text": "mushrooms, spinach, cream and pasta but no garlic", "ingredients": ["mushroom", "spinach", "heavy cream|cream", "pasta"], "exclude": ["garlic"]}
+{"text": "I only have oats, banana, milk and honey", "ingredients": ["oat|porridge oat|rolled oat", "banana", "milk", "honey"]}
+{"text": "tofu, broccoli, soy sauce, ginger, garlic, rice - vegan and under 25 minutes", "ingredients": ["tofu", "broccoli", "soy sauce", "ginger", "garlic", "rice"], "diet": "vegan", "max_minutes": 25}
+{"text": "prawns, coconut milk, red curry paste, lime. thai", "ingredients": ["shrimp|prawn", "coconut milk", "red curry paste|curry paste|thai red curry paste", "lime"], "cuisine": "thai"}
+{"text": "eggs, flour, sugar, butter, milk - something sweet", "ingredients": ["egg", "all purpose flour|flour", "white sugar|sugar", "butter", "milk"]}
+{"text": "chana, onion, tomato, ginger, garlic; under 45 minutes, vegan", "ingredients": ["chickpea", "onion", "tomato", "ginger", "garlic"], "diet": "vegan", "max_minutes": 45}
+{"text": "Leftover roast chicken, bread, lettuce and mayonnaise", "ingredients": ["chicken", "bread", "lettuce", "mayonnaise"]}
+{"text": "courgettes, feta, mint, lemon and couscous; vegetarian", "ingredients": ["zucchini|courgette", "feta", "mint", "lemon", "couscous"], "diet": "vegetarian"}
+{"text": "masoor dal, onion, tomato, jeera, haldi", "ingredients": ["red lentil", "onion", "tomato", "cumin", "turmeric"]}
+{"text": "I have bacon, eggs, spaghetti and parmesan. 30 min max", "ingredients": ["bacon", "egg", "spaghetti", "parmesan"], "max_minutes": 30}
+{"text": "sweet potatoes, black beans, avocado, lime, tortillas; vegetarian mexican", "ingredients": ["sweet potato", "black bean", "avocado", "lime", "tortilla"], "diet": "vegetarian", "cuisine": "mexican"}
+{"text": "lamb mince, onions, peas, carrots and potatoes", "ingredients": ["ground lamb|lamb|lamb mince", "onion", "pea", "carrot", "potato"]}
+{"text": "rice, moong dal, ghee, cumin seeds, turmeric - quick", "ingredients": ["rice", "mung bean", "ghee", "cumin", "turmeric"], "max_minutes": 30}
+{"text": "cauliflower, chickpeas, curry powder, coconut milk; dairy-free", "ingredients": ["cauliflower", "chickpea", "curry powder", "coconut milk"], "diet": "dairy_free"}
+{"text": "beetroot, goat's cheese, walnuts, rocket", "ingredients": ["beet|beetroot", "goat cheese|goat's cheese|cheese", "walnut", "arugula|rocket"]}
+{"text": "Hi! I have chicken thighs, yoghurt, garam masala, onions and rice. No nuts please", "ingredients": ["chicken thigh|chicken", "yogurt", "garam masala", "onion", "rice"], "exclude": ["nut"]}

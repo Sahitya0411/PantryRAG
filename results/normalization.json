@@ -1,0 +1,43 @@
+{
+  "n": 156,
+  "corpus_source": "bbc",
+  "ablation": {
+    "exact match only": {
+      "all": 0.045,
+      "recipe_phrase": 0.0,
+      "user_term": 0.081
+    },
+    "+ cleaning": {
+      "all": 0.218,
+      "recipe_phrase": 0.343,
+      "user_term": 0.116
+    },
+    "+ singularisation": {
+      "all": 0.397,
+      "recipe_phrase": 0.529,
+      "user_term": 0.291
+    },
+    "+ synonym map": {
+      "all": 0.782,
+      "recipe_phrase": 0.671,
+      "user_term": 0.872
+    },
+    "+ fuzzy (full)": {
+      "all": 0.91,
+      "recipe_phrase": 0.914,
+      "user_term": 0.907
+    },
+    "full w/o synonyms": {
+      "all": 0.628,
+      "recipe_phrase": 0.829,
+      "user_term": 0.465
+    }
+  },
+  "pantry_parsing": {
+    "n_queries": 25,
+    "ingredient_precision": 0.956,
+    "ingredient_recall": 0.948,
+    "ingredient_f1": 0.952,
+    "constraint_field_accuracy": 0.99
+  }
+}
